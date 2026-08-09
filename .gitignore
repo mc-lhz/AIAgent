@@ -1,0 +1,16 @@
+# ===== 凭证 / 密钥（切勿上推） =====
+.env
+**/.env
+
+# ===== Python 缓存 =====
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== 本地 Agent 状态（非源码） =====
+.workbuddy/
+
+# ===== OS 垃圾 =====
+.DS_Store
+Thumbs.db
+ehthumbs.db

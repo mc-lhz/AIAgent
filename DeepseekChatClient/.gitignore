@@ -1,0 +1,12 @@
+# 敏感凭证（勿提交）
+.env
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 临时排查 / 验证文件
+_verify_in.txt
+debugStream.py
+verifyFix.py
