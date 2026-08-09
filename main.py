@@ -9,16 +9,9 @@ import subprocess
 import time
 import tools
 from DeepseekChatClient.chatClient import deepseekClient
-from DeepseekChatClient.deepseekAuthenticate import loadEnv
 model = "deepseek-chat"
 url = "https://api.deepseek.com/chat/completions"
-# 密钥只从环境变量 / .env 读取，禁止硬编码（曾因硬编码上传公开仓库导致泄露被盗刷）
-api_key = os.getenv("DEEPSEEK_API_KEY", "") or loadEnv().get("DEEPSEEK_API_KEY", "")
-if not api_key:
-    raise RuntimeError(
-        "缺少 DEEPSEEK_API_KEY：请设置环境变量，或在 DeepseekChatClient/.env 中添加 "
-        "DEEPSEEK_API_KEY=sk-xxxx（该文件已被 .gitignore 忽略，不会上传）"
-    )
+api_key = ""
 
 headers = {
             "Authorization": f"Bearer {api_key}",
