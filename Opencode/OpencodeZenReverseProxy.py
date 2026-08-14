@@ -100,7 +100,7 @@ def chatCompletions():
         return ("", 204)
     body = request.get_json(silent=True) or {}
     stream = bool(body.get("stream", False))
-    print(f"接收到OpenAI请求：{str(body)[:200]}...，stream={stream}，model={body.get('model', 'unknown')}")
+    print(f"接收到OpenAI请求：{str(body)[:200]}...，stream={stream}")
     try:
         result = openAIChatCompletion(headers, body, stream=stream)
     except requests.exceptions.HTTPError as upstreamError:
@@ -132,7 +132,7 @@ def messages():
         return ("", 204)
     body = request.get_json(silent=True) or {}
     stream = bool(body.get("stream", False))
-    print(f"接收到Anthropic请求：{str(body)[:200]}...，stream={stream}，model={body.get('model', 'unknown')}")
+    print(f"接收到Anthropic请求：{str(body)[:200]}...，stream={stream}")
     try:
         result = anthropicMessages(headers, body, stream=stream)
     except requests.exceptions.HTTPError as upstreamError:
