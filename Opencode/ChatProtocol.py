@@ -72,16 +72,59 @@ def anthropicToOpenai(anthropicBody):
     for message in anthropicBody.get("messages", []):
         role = message.get("role")
         content = message.get("content")
+
         if isinstance(content, str):
             messages.append({"role": role, "content": content})
-        elif isinstance(content, list):
-            text = "".join(
-                block.get("text", "") for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            )
-            messages.append({"role": role, "content": text})
-        else:
+            continue
+        if not isinstance(content, list):
             messages.append({"role": role, "content": content})
+            continue
+
+        # 内容是块列表：拆出文本 / tool_use / tool_result
+        textPieces = []
+        toolUses = []     # assistant 发出的工具调用
+        toolResults = []  # user 回传的工具结果
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            blockType = block.get("type")
+            if blockType == "text":
+                textPieces.append(block.get("text", ""))
+            elif blockType == "tool_use" and role == "assistant":
+                toolUses.append(block)
+            elif blockType == "tool_result" and role == "user":
+                toolResults.append(block)
+        textContent = "".join(p for p in textPieces if p)
+
+        if role == "assistant" and toolUses:
+            # 转成 OpenAI tool_calls（arguments 必须是 JSON 字符串）
+            openaiToolCalls = []
+            for tu in toolUses:
+                openaiToolCalls.append({
+                    "id": tu.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": tu.get("name"),
+                        "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False),
+                    },
+                })
+            messages.append({
+                "role": "assistant",
+                "content": textContent or None,
+                "tool_calls": openaiToolCalls,
+            })
+        elif role == "user" and toolResults:
+            # 普通文本作为 user 消息；每个 tool_result 转成独立 tool 消息
+            if textContent:
+                messages.append({"role": "user", "content": textContent})
+            for tr in toolResults:
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tr.get("tool_use_id"),
+                    "content": _extractTextFromContent(tr.get("content")),
+                })
+        else:
+            messages.append({"role": role, "content": textContent})
     openAIBody["messages"] = messages
 
     if "max_tokens" in anthropicBody:
@@ -127,6 +170,18 @@ def _convertToolChoice(anthropicToolChoice):
     if choiceType == "tool":
         return {"type": "function", "function": {"name": anthropicToolChoice.get("name")}}
     return None
+
+
+def _extractTextFromContent(content):
+    """从 Anthropic 的 content（str 或 [{type:text,...}]）里抽出纯文本。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
 
 
 def safeStream(generator, label):
