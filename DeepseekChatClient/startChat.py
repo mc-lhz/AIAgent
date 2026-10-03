@@ -23,7 +23,7 @@ def startChat(title="DeepseekHashV1"):
 
     while True:
         response = client.ask(input("请输入问题："))   # ← 调用方只需传 prompt
-        print(response)
+        # print(response)
 
 
 if __name__ == "__main__":

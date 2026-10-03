@@ -13,6 +13,7 @@ Reverse-engineered from browser DevTools; tested against chat.deepseek.com web b
 """
 import os
 import sys
+import threading
 
 # 确保本文件所在目录在 sys.path 首位，使兄弟模块（solve_wasm_py / getChat /
 # deepseekAuthenticate / getDeviceId / constants）无论从哪个工作目录运行本模块都能被导入。
@@ -50,6 +51,10 @@ class deepseekClient:
         self.bearer, self.cookie = ensureLoggedIn()
         self.title = title
         self.chatSessionId = self.findChatByTitle(title)  # 自动绑定；找不到为 None
+        # 会话级互斥锁：parent_message_id 是现查的会话级最后一条消息，
+        # 并发调用会拿到同一父消息导致服务端消息树冲突（返回空回复），
+        # 故对 ask / askStream 整条链路（取 parent_id + 发送）加锁串行化。
+        self.threadLock = threading.Lock()
 
     def getPowHeader(self, targetPath, bearer=None, cookie=None, api=apiBase):
         """拉取并解决一次 PoW 挑战，返回 base64 后的 JSON 头（X-DS-PoW-Response 的值）。
@@ -88,6 +93,7 @@ class deepseekClient:
         chatSessionId = chatSessionId or self.chatSessionId
         if parentMessageId is None:
             parentMessageId = 0
+        print(f"[debug] chat() send prompt len={len(prompt)} parent={parentMessageId} session={chatSessionId}")
 
         def _run(bearer, cookie, api=apiBase):
             # PoW 头必须与本端点路径（completionPath）匹配，且每次重新生成避免过期
@@ -148,6 +154,7 @@ class deepseekClient:
                         j = json.loads(line.decode("utf-8"))
                     except Exception:
                         continue
+                    print(f"[debug] SSE frame: {json.dumps(j, ensure_ascii=False)[:500]}")
                     if isTokenInvalid(j):
                         auth_failed = True
                         break
@@ -156,6 +163,7 @@ class deepseekClient:
                     if isinstance(thunkText, dict):
                         fragments = thunkText.get("response", {}).get("fragments", [])
                         for frag in fragments:
+                            print(f"[debug]   fragment type={frag.get('type')} content={json.dumps(frag.get('content', ''), ensure_ascii=False)[:300]}")
                             if frag.get("type") == "RESPONSE":
                                 piece = frag.get("content", "")
                                 if isinstance(piece, str) and piece:
@@ -221,11 +229,122 @@ class deepseekClient:
         内部：使用实例化时已绑定的 self.chatSessionId → 取上一条 parent_message_id
         → 调底层 chat(...)。等价于 client.chat(prompt, chatSessionId, parentMessageId)。
         会话未绑定（标题未找到）时显式抛出 RuntimeError 提示先创建。
+        线程安全：整条链路由 self.threadLock 串行化，多线程并发调用会排队执行。
         """
         if not self.chatSessionId:
             raise RuntimeError(
                 f"未绑定会话（标题 {self.title!r} 未找到），请先在 DeepSeek web 端创建同名会话"
             )
-        parent = self.getParentMessageId(self.chatSessionId)
-        return self.chat(prompt, self.chatSessionId, parentMessageId=parent, model=model)
+        with self.threadLock:
+            parent = self.getParentMessageId(self.chatSessionId)
+            return self.chat(prompt, self.chatSessionId, parentMessageId=parent, model=model)
+
+    def chatStream(self, prompt, chatSessionId=None, parentMessageId=None, model="deepseek-chat"):
+        """chat() 的生成器版本：逐块 yield 文本增量，不 print、不拼接。
+
+        与 chat() 相同：自动 PoW、自动重登（HTTP 401/403 或流内失效各重试一次）。
+        区别：返回生成器，每次迭代 yield 一段文本增量（首帧/停止帧等元数据已过滤），
+        适合直接作为 SSE / 流式响应的数据源。
+        """
+        chatSessionId = chatSessionId or self.chatSessionId
+        if parentMessageId is None:
+            parentMessageId = 0
+        print(f"[debug] chatStream() send prompt len={len(prompt)} parent={parentMessageId} session={chatSessionId}")
+
+        def _run(bearer, cookie, api=apiBase):
+            powHeader = self.getPowHeader(completionPath, bearer=bearer, cookie=cookie, api=api)
+            return requests.post(
+                f"{api}{completionPath}",
+                json={"prompt": prompt,
+                      "parent_message_id": parentMessageId,
+                      "chat_session_id": chatSessionId,
+                      "referenced_message_ids": [],
+                      "ref_file_ids": [],
+                      "search": False,
+                      "think": False,
+                      "model": model,
+                      "stream": True},
+                headers={"Authorization": f"Bearer {bearer}",
+                         "Cookie": cookie,
+                         "Content-Type": "application/json",
+                         "Referer": f"{api}/",
+                         "X-DS-PoW-Response": powHeader,
+                         **xClientHeaders},
+                impersonate=impersonate,
+                stream=True,
+            )
+
+        bearer, cookie = self.bearer, self.cookie
+        resp = _run(bearer, cookie)
+        if resp.status_code in (401, 403):
+            print("[auth] 检测到 token 失效，重新登录一次…")
+            bearer, cookie = doLogin()
+            self.bearer, self.cookie = bearer, cookie
+            resp = _run(bearer, cookie)
+
+        retried = False
+        while True:
+            auth_failed = False
+            buf = b""
+            for raw in resp.iter_content(chunk_size=1024):
+                if not raw:
+                    continue
+                buf += raw
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith(b"data:"):
+                        line = line[5:].strip()
+                    if line == b"[DONE]":
+                        return
+                    try:
+                        j = json.loads(line.decode("utf-8"))
+                    except Exception:
+                        continue
+                    print(f"[debug] SSE frame: {json.dumps(j, ensure_ascii=False)[:500]}")
+                    if isTokenInvalid(j):
+                        auth_failed = True
+                        break
+                    thunkText = j.get("v", "")
+                    if isinstance(thunkText, dict):
+                        fragments = thunkText.get("response", {}).get("fragments", [])
+                        for frag in fragments:
+                            print(f"[debug]   fragment type={frag.get('type')} content={json.dumps(frag.get('content', ''), ensure_ascii=False)[:300]}")
+                            if frag.get("type") == "RESPONSE":
+                                piece = frag.get("content", "")
+                                if isinstance(piece, str) and piece:
+                                    yield piece
+                    elif isinstance(thunkText, str) and thunkText:
+                        if thunkText == stopFlag:
+                            return
+                        yield thunkText
+            if auth_failed and not retried:
+                print("[auth] 检测到 token 失效，重新登录一次…")
+                bearer, cookie = doLogin()
+                self.bearer, self.cookie = bearer, cookie
+                resp = _run(bearer, cookie)
+                retried = True
+                continue
+            return
+
+    def askStream(self, prompt, model="deepseek-chat"):
+        """对外高层流式对话函数：像 ask() 一样优雅，但返回逐块文本的生成器。
+
+        内部：校验会话绑定 → 取上一条 parent_message_id → 调 chatStream(...)。
+        调用方只需：
+            for piece in client.askStream(prompt):
+                print(piece, end="")
+        会话未绑定（标题未找到）时显式抛出 RuntimeError 提示先创建。
+        线程安全：整条链路由 self.threadLock 串行化；锁在生成器整个消费周期内持有，
+        调用方中断消费（close）时同样会释放。
+        """
+        if not self.chatSessionId:
+            raise RuntimeError(
+                f"未绑定会话（标题 {self.title!r} 未找到），请先在 DeepSeek web 端创建同名会话"
+            )
+        with self.threadLock:
+            parent = self.getParentMessageId(self.chatSessionId)
+            yield from self.chatStream(prompt, self.chatSessionId, parentMessageId=parent, model=model)
 

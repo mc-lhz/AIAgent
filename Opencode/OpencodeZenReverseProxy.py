@@ -52,13 +52,23 @@ apiKey = "public"
 knownFreeModels = []
 # 请求头
 userAgent = (
-    "opencode/1.18.18"
+    "opencode/1.18.26"
 )
 headers = {
     "User-Agent": userAgent,
     "Authorization": f"Bearer {apiKey}",
 }
 
+
+def make_request_headers():
+    """为每次请求生成独立的 x-opencode-* 头（session/request ID 唯一）。"""
+    h = dict(headers)
+    h["x-opencode-project"] = uuid.uuid4().hex
+    h["x-opencode-session"] = "ses_" + uuid.uuid4().hex[:26]
+    h["x-opencode-request"] = "msg_" + uuid.uuid4().hex[:26]
+    h["x-opencode-client"] = "cli"
+    h["x-opencode-version"] = userAgent.replace("opencode/", "")
+    return h
 
 
 app = Flask(__name__)
@@ -98,11 +108,13 @@ def modelsList():
 def chatCompletions():
     if request.method == "OPTIONS":
         return ("", 204)
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True) or {} 
     stream = bool(body.get("stream", False))
-    print(f"接收到OpenAI请求：{str(body)[:200]}...，stream={stream}")
+    req_headers = make_request_headers()
+    print(f"接收到OpenAI请求：headers={str(req_headers)}, body={str(body)[:200]}...,stream={stream}")
+    print(f"原请求headers={str(request.headers)}")
     try:
-        result = openAIChatCompletion(headers, body, stream=stream)
+        result = openAIChatCompletion(req_headers, body, stream=stream)
     except requests.exceptions.HTTPError as upstreamError:
         # 上游返回错误（4xx/5xx）：原路透传状态码与响应体到下游
         upstreamResponse = upstreamError.response
@@ -132,9 +144,11 @@ def messages():
         return ("", 204)
     body = request.get_json(silent=True) or {}
     stream = bool(body.get("stream", False))
-    print(f"接收到Anthropic请求：{str(body)[:200]}...，stream={stream}")
+    req_headers = make_request_headers()
+    print(f"接收到Anthropic请求：headers={str(req_headers)}, body={str(body)[:200]}...,stream={stream}")
+    print(f"原请求headers={str(request.headers)}")
     try:
-        result = anthropicMessages(headers, body, stream=stream)
+        result = anthropicMessages(req_headers, body, stream=stream)
     except requests.exceptions.HTTPError as upstreamError:
         # 上游返回错误（4xx/5xx）：原路透传状态码与响应体到下游
         upstreamResponse = upstreamError.response
