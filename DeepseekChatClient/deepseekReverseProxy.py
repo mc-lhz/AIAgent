@@ -9,6 +9,9 @@ import re
 from flask import Flask, request, jsonify, Response
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import Logcat
+Log = Logcat.Logcat()
 from chatClient import deepseekClient
 
 app = Flask(__name__)
@@ -133,9 +136,9 @@ def streamOpenai(prompt, model, tools):
             for piece in getClient().askStream(prompt, model=model):
                 full += piece
         except Exception as e:
-            print(f"\n[error] {e}")
+            Log.e('Proxy', str(e))
         if tools:
-            print(f"\n[debug] 模型原始输出: {full!r}")
+            Log.d('Proxy', f"模型原始输出: {full!r}")
             calls, remaining = parseInvoke(full)
             if calls:
                 delta = {'content': remaining or None,
@@ -177,10 +180,10 @@ def chatCompletions():
 
     try:
         text = getClient().ask(prompt, model=model)
-        print(f"[non-stream] {text}")
+        Log.d('Proxy', f"non-stream: {text}")
         message = {'role': 'assistant', 'content': text, 'finish_reason': 'stop'}
         if tools:
-            print(f"\n[debug] 模型原始输出: {text!r}")
+            Log.d('Proxy', f"模型原始输出: {text!r}")
             calls, remaining = parseInvoke(text)
             if calls:
                 message = {'role': 'assistant',
@@ -210,8 +213,6 @@ def health():
 
 if __name__ == '__main__':
     getClient()
-    print('=' * 50)
-    print('Deepseek Reverse Proxy (OpenAI 兼容 + Tool Calling)')
-    print('POST /v1/chat/completions  (stream=true 走 SSE)')
-    print('=' * 50)
+    Log.i('Proxy', 'Deepseek Reverse Proxy (OpenAI 兼容 + Tool Calling)')
+    Log.i('Proxy', 'POST /v1/chat/completions  (stream=true 走 SSE)')
     app.run(host='0.0.0.0', port=5000, debug=True)

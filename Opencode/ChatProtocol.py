@@ -13,6 +13,13 @@ base 指向任意 OpenAI 兼容端点（只需 /chat/completions；Anthropic 请
 import requests
 import json
 import uuid
+import os
+import sys
+
+# 项目根目录（Logcat.py 所在）
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import Logcat
+Log = Logcat.Logcat()
 
 # 上游 base URL 与请求伪装 UA（可按需覆盖）
 base = "https://opencode.ai/zen/v1"
@@ -190,7 +197,7 @@ def safeStream(generator, label):
         for frame in generator:
             yield frame
     except Exception as exc:
-        print(f"[proxy] stream error ({label}): {type(exc).__name__}: {exc}")
+        Log.e('ChatProtocol', f"stream error ({label}): {type(exc).__name__}: {exc}")
 
 
 def sseEvent(eventName, dataPayload):

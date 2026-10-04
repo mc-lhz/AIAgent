@@ -10,6 +10,9 @@ __pycache__/
 # ===== 本地 Agent 状态（非源码） =====
 .workbuddy/
 
+# ===== IDE 内部计划/文档 =====
+.trae/
+
 # ===== OS 垃圾 =====
 .DS_Store
 Thumbs.db

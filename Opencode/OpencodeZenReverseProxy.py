@@ -30,6 +30,11 @@ import requests
 from flask import Flask, Response, jsonify, request
 from ChatProtocol import openAIChatCompletion, anthropicMessages
 
+# 项目根目录（Logcat.py 所在）
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import Logcat
+Log = Logcat.Logcat()
+
 # ---------- Windows 控制台 UTF-8 适配 ----------
 if sys.platform == "win32":
     try:
@@ -111,8 +116,7 @@ def chatCompletions():
     body = request.get_json(silent=True) or {} 
     stream = bool(body.get("stream", False))
     req_headers = make_request_headers()
-    print(f"接收到OpenAI请求：headers={str(req_headers)}, body={str(body)[:200]}...,stream={stream}")
-    print(f"原请求headers={str(request.headers)}")
+    Log.d('ZenProxy', f"OpenAI请求：body={str(body)[:200]}...,stream={stream}")
     try:
         result = openAIChatCompletion(req_headers, body, stream=stream)
     except requests.exceptions.HTTPError as upstreamError:
@@ -145,8 +149,7 @@ def messages():
     body = request.get_json(silent=True) or {}
     stream = bool(body.get("stream", False))
     req_headers = make_request_headers()
-    print(f"接收到Anthropic请求：headers={str(req_headers)}, body={str(body)[:200]}...,stream={stream}")
-    print(f"原请求headers={str(request.headers)}")
+    Log.d('ZenProxy', f"Anthropic请求：body={str(body)[:200]}...,stream={stream}")
     try:
         result = anthropicMessages(req_headers, body, stream=stream)
     except requests.exceptions.HTTPError as upstreamError:
@@ -177,16 +180,14 @@ def healthCheck():
 
 
 if __name__ == "__main__":
-    print("=" * 56)
-    print("  Zen Proxy MVP (Flask + requests)")
-    print(f"  Listening on http://localhost:{port}")
-    print(f"  GET  /v1/models            (upstream: {baseAPI}/models)")
-    print(f"  POST /v1/chat/completions  (upstream: {baseAPI}/chat/completions)")
-    print(f"  POST /v1/messages        (upstream: {baseAPI}/chat/completions)")
-    print(f"  free models -> Bearer public | paid models -> OPENCODE_API_KEY "
-          f"{'(configured)' if apiKey else '(NOT set)'}")
-    print("=" * 56)
-    print("Press Ctrl+C to stop")
+    Log.i('ZenProxy', 'Zen Proxy MVP (Flask + requests)')
+    Log.i('ZenProxy', f"Listening on http://localhost:{port}")
+    Log.i('ZenProxy', f"GET  /v1/models            (upstream: {baseAPI}/models)")
+    Log.i('ZenProxy', f"POST /v1/chat/completions  (upstream: {baseAPI}/chat/completions)")
+    Log.i('ZenProxy', f"POST /v1/messages        (upstream: {baseAPI}/chat/completions)")
+    Log.i('ZenProxy', f"free models -> Bearer public | paid models -> OPENCODE_API_KEY "
+                       f"{'(configured)' if apiKey else '(NOT set)'}")
+    Log.i('ZenProxy', 'Press Ctrl+C to stop')
 
     # threaded=True 支持并发请求；host=0.0.0.0 允许局域网访问（Windows 防火墙需放行）
     app.run(host="0.0.0.0", port=port, threaded=True, debug=False)

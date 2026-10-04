@@ -3,6 +3,8 @@ import os
 import sys
 import time
 import tools
+import Logcat
+Log = Logcat.Logcat()
 from DeepseekChatClient.chatClient import deepseekClient
 from ClaudeCodeClient import ClaudeCodeClient
 from ClawCodeClient import ClawCodeClient
@@ -38,20 +40,20 @@ def get_chat_client(force_backend=None):
         try:
             chatClient_claude = ClaudeCodeClient(model=MODEL_CLAUDE)
         except Exception as e:
-            print(f"[警告] Claude Code 初始化失败: {e}")
+            Log.w('Agent', f"Claude Code 初始化失败: {e}")
             chatClient_claude = None
     if chatClient_claw is None:
         try:
             chatClient_claw = ClawCodeClient(model=MODEL_CLAW)
         except Exception as e:
-            print(f"[警告] Claw Code 初始化失败: {e}")
+            Log.w('Agent', f"Claw Code 初始化失败: {e}")
             chatClient_claw = None
 
     if force_backend in ('deepseek', 'claude', 'claw'):
         client = globals().get(f'chatClient_{force_backend}')
         if client:
             return client
-        print(f"[警告] 后端 {force_backend} 不可用，回退到 Deepseek")
+        Log.w('Agent', f"后端 {force_backend} 不可用，回退到 Deepseek")
         return chatClient_deepseek
 
     # 按优先级返回第一个可用的后端
@@ -129,7 +131,7 @@ def ask_with_retry(prompt):
                     continue
                 # 本次尝试失败，继续下一个后端
                 _last_backend = backend  # 记录失败后端，下次跳过
-                print(f"[后端 {backend} 失败: {e}] 尝试备用后端...")
+                Log.w('Agent', f"后端 {backend} 失败: {e}] 尝试备用后端...")
                 break  # 跳出当前后端的重试循环，换下一个
 
     # 所有后端都失败了
@@ -145,9 +147,9 @@ while True:
             ai_result = ask_with_retry(prompt)
         except Exception as e:
             if classify(e) == "auth":
-                print(f"[认证失败] 请检查登录态：{e}")
+                Log.e('Agent', f"请检查登录态：{e}")
                 break                       # 回退到 input()
-            print(f"AI Agent失败：{e}")
+            Log.e('Agent', f"AI Agent失败：{e}")
             break
         user_content.append(ai_result)      # 仅此处追加一次（已删原重复 append）
         try:
@@ -161,4 +163,4 @@ while True:
         user_content.append(f"你执行了{ai_result}，结果为{tool_result}")
     else:
         # for 正常跑满 MAX_TURNS 仍未 stop → 强制收尾，回到 input()
-        print(f"[达到上限 {MAX_TURNS} 轮] 已自动停止，可继续输入新指令。")
+        Log.w('Agent', f"达到上限 {MAX_TURNS} 轮，已自动停止，可继续输入新指令。")

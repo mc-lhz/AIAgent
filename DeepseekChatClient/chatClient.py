@@ -18,6 +18,10 @@ import threading
 # 确保本文件所在目录在 sys.path 首位，使兄弟模块（solve_wasm_py / getChat /
 # deepseekAuthenticate / getDeviceId / constants）无论从哪个工作目录运行本模块都能被导入。
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 项目根目录（Logcat.py 所在）
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import Logcat
+Log = Logcat.Logcat()
 
 import curl_cffi.requests as requests
 import json
@@ -93,7 +97,7 @@ class deepseekClient:
         chatSessionId = chatSessionId or self.chatSessionId
         if parentMessageId is None:
             parentMessageId = 0
-        print(f"[debug] chat() send prompt len={len(prompt)} parent={parentMessageId} session={chatSessionId}")
+        Log.d('DSClient', f"chat() send prompt len={len(prompt)} parent={parentMessageId} session={chatSessionId}")
 
         def _run(bearer, cookie, api=apiBase):
             # PoW 头必须与本端点路径（completionPath）匹配，且每次重新生成避免过期
@@ -154,7 +158,7 @@ class deepseekClient:
                         j = json.loads(line.decode("utf-8"))
                     except Exception:
                         continue
-                    print(f"[debug] SSE frame: {json.dumps(j, ensure_ascii=False)[:500]}")
+                    Log.d('DSClient', f"SSE frame: {json.dumps(j, ensure_ascii=False)[:500]}")
                     if isTokenInvalid(j):
                         auth_failed = True
                         break
@@ -163,7 +167,7 @@ class deepseekClient:
                     if isinstance(thunkText, dict):
                         fragments = thunkText.get("response", {}).get("fragments", [])
                         for frag in fragments:
-                            print(f"[debug]   fragment type={frag.get('type')} content={json.dumps(frag.get('content', ''), ensure_ascii=False)[:300]}")
+                            Log.d('DSClient', f"fragment type={frag.get('type')} content={json.dumps(frag.get('content', ''), ensure_ascii=False)[:300]}")
                             if frag.get("type") == "RESPONSE":
                                 piece = frag.get("content", "")
                                 if isinstance(piece, str) and piece:
@@ -182,14 +186,14 @@ class deepseekClient:
         resp = _run(bearer, cookie)
         # HTTP 层鉴权失效（401/403）→ 重登一次（不调用 resp.json()，避免消费流）
         if resp.status_code in (401, 403):
-            print("[auth] 检测到 token 失效，重新登录一次…")
+            Log.w('DSClient', "token 失效，重新登录一次…")
             bearer, cookie = doLogin()
             self.bearer, self.cookie = bearer, cookie
             resp = _run(bearer, cookie)
         text, auth_failed = _stream(resp)
         # SSE 流内错误帧也可能表示 token 失效 → 重登一次并重试（仅一次）
         if auth_failed:
-            print("[auth] 检测到 token 失效，重新登录一次…")
+            Log.w('DSClient', "token 失效，重新登录一次…")
             bearer, cookie = doLogin()
             self.bearer, self.cookie = bearer, cookie
             resp = _run(bearer, cookie)
@@ -249,7 +253,7 @@ class deepseekClient:
         chatSessionId = chatSessionId or self.chatSessionId
         if parentMessageId is None:
             parentMessageId = 0
-        print(f"[debug] chatStream() send prompt len={len(prompt)} parent={parentMessageId} session={chatSessionId}")
+        Log.d('DSClient', f"chatStream() send prompt len={len(prompt)} parent={parentMessageId} session={chatSessionId}")
 
         def _run(bearer, cookie, api=apiBase):
             powHeader = self.getPowHeader(completionPath, bearer=bearer, cookie=cookie, api=api)
@@ -277,7 +281,7 @@ class deepseekClient:
         bearer, cookie = self.bearer, self.cookie
         resp = _run(bearer, cookie)
         if resp.status_code in (401, 403):
-            print("[auth] 检测到 token 失效，重新登录一次…")
+            Log.w('DSClient', "token 失效，重新登录一次…")
             bearer, cookie = doLogin()
             self.bearer, self.cookie = bearer, cookie
             resp = _run(bearer, cookie)
@@ -303,7 +307,7 @@ class deepseekClient:
                         j = json.loads(line.decode("utf-8"))
                     except Exception:
                         continue
-                    print(f"[debug] SSE frame: {json.dumps(j, ensure_ascii=False)[:500]}")
+                    Log.d('DSClient', f"SSE frame: {json.dumps(j, ensure_ascii=False)[:500]}")
                     if isTokenInvalid(j):
                         auth_failed = True
                         break
@@ -311,7 +315,7 @@ class deepseekClient:
                     if isinstance(thunkText, dict):
                         fragments = thunkText.get("response", {}).get("fragments", [])
                         for frag in fragments:
-                            print(f"[debug]   fragment type={frag.get('type')} content={json.dumps(frag.get('content', ''), ensure_ascii=False)[:300]}")
+                            Log.d('DSClient', f"fragment type={frag.get('type')} content={json.dumps(frag.get('content', ''), ensure_ascii=False)[:300]}")
                             if frag.get("type") == "RESPONSE":
                                 piece = frag.get("content", "")
                                 if isinstance(piece, str) and piece:
@@ -321,7 +325,7 @@ class deepseekClient:
                             return
                         yield thunkText
             if auth_failed and not retried:
-                print("[auth] 检测到 token 失效，重新登录一次…")
+                Log.w('DSClient', "token 失效，重新登录一次…")
                 bearer, cookie = doLogin()
                 self.bearer, self.cookie = bearer, cookie
                 resp = _run(bearer, cookie)
